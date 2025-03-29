@@ -3,6 +3,8 @@
   <a href="https://docs.rs/sqlite-plugin"><img alt="docs.rs" src="https://img.shields.io/docsrs/sqlite-plugin"></a>
   &nbsp;
   <a href="https://crates.io/crates/sqlite-plugin"><img alt="crates.io" src="https://img.shields.io/crates/v/sqlite-plugin.svg"></a>
+  &nbsp;
+  <a href="https://github.com/orbitinghail/sqlite-plugin/actions"><img alt="Build Status" src="https://github.com/orbitinghail/sqlite-plugin/actions/workflows/rust.yml/badge.svg"></a>
 </p>
 
 `sqlite-plugin` provides a streamlined and flexible way to implement SQLite virtual file systems (VFS) in Rust. Inspired by [sqlite-vfs], it offers a distinct design with key enhancements:
