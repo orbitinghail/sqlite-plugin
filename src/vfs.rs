@@ -348,7 +348,7 @@ fn register_inner<T: Vfs>(
         unsafe {
             drop(Box::from_raw(p_vfs));
             drop(Box::from_raw(p_appdata));
-            drop(CString::from_raw(p_name as *mut i8));
+            drop(CString::from_raw(p_name as *mut c_char));
         };
         Err(result)
     } else {
