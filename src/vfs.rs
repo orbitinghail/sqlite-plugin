@@ -1,12 +1,12 @@
 use crate::flags::{AccessFlags, LockLevel, OpenOpts};
 use crate::logger::SqliteLogger;
+use crate::vars::SQLITE_ERROR;
 use crate::{ffi, vars};
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::String;
-use core::fmt::Display;
 use core::mem::{self, ManuallyDrop, MaybeUninit, size_of};
 use core::slice;
 use core::{
@@ -64,21 +64,18 @@ pub struct Pragma<'a> {
 #[derive(Debug)]
 pub enum PragmaErr {
     NotFound,
-    Fail(String),
+    Fail(SqliteErr, Option<String>),
 }
 
 impl PragmaErr {
     pub fn required_arg(p: &Pragma<'_>) -> Self {
-        PragmaErr::Fail(format!(
-            "argument required (e.g. `pragma {} = ...`)",
-            p.name
-        ))
-    }
-}
-
-impl<T: Display> From<T> for PragmaErr {
-    fn from(value: T) -> Self {
-        PragmaErr::Fail(format!("{value}"))
+        PragmaErr::Fail(
+            SQLITE_ERROR,
+            Some(format!(
+                "argument required (e.g. `pragma {} = ...`)",
+                p.name
+            )),
+        )
     }
 }
 
@@ -585,7 +582,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             let (result, msg) = match vfs.pragma(unsafe { file.handle.assume_init_mut() }, pragma) {
                 Ok(msg) => (Ok(vars::SQLITE_OK), msg),
                 Err(PragmaErr::NotFound) => (Err(vars::SQLITE_NOTFOUND), None),
-                Err(PragmaErr::Fail(msg)) => (Err(vars::SQLITE_ERROR), Some(msg)),
+                Err(PragmaErr::Fail(err, msg)) => (Err(err), msg),
             };
 
             if let Some(msg) = msg {
