@@ -247,7 +247,7 @@ pub struct RegisterOpts {
 }
 
 #[cfg(feature = "static")]
-pub fn register_static<T: Vfs>(name: &str, vfs: T, opts: RegisterOpts) -> VfsResult<()> {
+pub fn register_static<T: Vfs>(name: CString, vfs: T, opts: RegisterOpts) -> VfsResult<()> {
     register_inner(SqliteApi::new_static(), name, vfs, opts)
 }
 
@@ -258,7 +258,7 @@ pub fn register_static<T: Vfs>(name: &str, vfs: T, opts: RegisterOpts) -> VfsRes
 #[cfg(feature = "dynamic")]
 pub unsafe fn register_dynamic<T: Vfs>(
     p_api: *mut ffi::sqlite3_api_routines,
-    name: &str,
+    name: CString,
     vfs: T,
     opts: RegisterOpts,
 ) -> VfsResult<()> {
@@ -269,7 +269,7 @@ pub unsafe fn register_dynamic<T: Vfs>(
 
 fn register_inner<T: Vfs>(
     sqlite_api: SqliteApi,
-    name: &str,
+    name: CString,
     vfs: T,
     opts: RegisterOpts,
 ) -> VfsResult<()> {
@@ -305,7 +305,7 @@ fn register_inner<T: Vfs>(
 
     vfs.register_logger(SqliteLogger::new(sqlite_api.log));
 
-    let p_name = ManuallyDrop::new(CString::new(name).map_err(|_| vars::SQLITE_INTERNAL)?).as_ptr();
+    let p_name = ManuallyDrop::new(name).as_ptr();
     let base_vfs = unsafe { (sqlite_api.find)(null_mut()) };
     let vfs_register = sqlite_api.register;
     let p_appdata = Box::into_raw(Box::new(AppData { base_vfs, vfs, io_methods, sqlite_api }));
@@ -760,8 +760,12 @@ mod tests {
         }
 
         let vfs = MockVfs::new(Box::new(H {}));
-        register_static("mock", vfs, RegisterOpts { make_default: true })
-            .map_err(|_| "failed to register vfs")?;
+        register_static(
+            CString::new("mock").unwrap(),
+            vfs,
+            RegisterOpts { make_default: true },
+        )
+        .map_err(|_| "failed to register vfs")?;
 
         // create a sqlite connection using the mock vfs
         let conn = Connection::open_with_flags_and_vfs(
