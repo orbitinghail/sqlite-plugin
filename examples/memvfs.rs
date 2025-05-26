@@ -1,6 +1,10 @@
 // cargo build --example memvfs --features dynamic
 
-use std::{ffi::c_void, os::raw::c_char, sync::Arc};
+use std::{
+    ffi::{CStr, c_void},
+    os::raw::c_char,
+    sync::Arc,
+};
 
 use parking_lot::Mutex;
 use sqlite_plugin::{
@@ -223,9 +227,15 @@ pub unsafe extern "C" fn sqlite3_memvfs_init(
     p_api: *mut sqlite3_api_routines,
 ) -> std::os::raw::c_int {
     let vfs = MemVfs { files: Default::default() };
-    if let Err(err) =
-        unsafe { register_dynamic(p_api, "mem", vfs, RegisterOpts { make_default: true }) }
-    {
+    const MEMVFS_NAME: &CStr = c"mem";
+    if let Err(err) = unsafe {
+        register_dynamic(
+            p_api,
+            MEMVFS_NAME.to_owned(),
+            vfs,
+            RegisterOpts { make_default: true },
+        )
+    } {
         return err;
     }
 
