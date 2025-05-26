@@ -784,7 +784,7 @@ mod tests {
         println!("inserting zero blob");
         conn.execute("insert into b values (zeroblob(8192))", [])?;
         let rowid = conn.last_insert_rowid();
-        let mut blob = conn.blob_open(rusqlite::DatabaseName::Main, "b", "data", rowid, false)?;
+        let mut blob = conn.blob_open(rusqlite::MAIN_DB, "b", "data", rowid, false)?;
 
         // write some data to the blob
         println!("writing to blob");

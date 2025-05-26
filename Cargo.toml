@@ -18,7 +18,7 @@ doc-markdown = "warn"
 map-unwrap-or = "warn"
 
 [dev-dependencies]
-rusqlite = { version = "=0.35.0", features = ["blob", "trace", "bundled"] }
+rusqlite = { version = "=0.36.0", features = ["blob", "trace", "bundled"] }
 log = { version = "=0.4.27", features = ["std"] }
 parking_lot = "=0.12.3"
 
