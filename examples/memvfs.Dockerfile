@@ -23,7 +23,6 @@ RUN cd /tmp && \
                 CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 \
                         -DSQLITE_ENABLE_LOAD_EXTENSION=1 \
                         -DSQLITE_ENABLE_FTS5=1 \
-                        -DSQLITE_ENABLE_BATCH_ATOMIC_WRITE=1 \
                         -DSQLITE_ENABLE_DBSTAT_VTAB=1 \
                         -DSQLITE_ENABLE_NULL_TRIM=1 \
                         -DSQLITE_ENABLE_RTREE=1" && \
