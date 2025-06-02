@@ -20,7 +20,7 @@ map-unwrap-or = "warn"
 [dev-dependencies]
 rusqlite = { version = "=0.36.0", features = ["blob", "trace", "bundled"] }
 log = { version = "=0.4.27", features = ["std"] }
-parking_lot = "=0.12.3"
+parking_lot = "=0.12.4"
 
 [build-dependencies]
 bindgen = { version = "0.71", default-features = false }
