@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.3.1 - 2025-06-16
+
+- dependency bump
+
 ## 0.3.0 - 2025-05-26
 
 - `register_dynamic` and `register_static` now require the VFS name to be passed in as a CString.
