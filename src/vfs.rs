@@ -16,7 +16,7 @@ use core::{
 
 /// The minimim supported `SQLite` version.
 // If you need to make this earlier, make sure the tests are testing the earlier version
-pub const MIN_SQLITE_VERSION_NUMBER: i32 = 3044000;
+pub const MIN_SQLITE_VERSION_NUMBER: i32 = 3043000;
 
 const DEFAULT_MAX_PATH_LEN: i32 = 512;
 pub const DEFAULT_SECTOR_SIZE: i32 = 4096;
