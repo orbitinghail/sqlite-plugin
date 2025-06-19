@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.4.0 - 2025-06-19
+
+- relax min SQLite version to 3.43.0
+
 ## 0.3.1 - 2025-06-16
 
 - dependency bump
