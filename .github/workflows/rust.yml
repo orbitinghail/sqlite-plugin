@@ -38,10 +38,10 @@ jobs:
           tool: cargo-nextest
 
       - name: Build
-        run: cargo build
+        run: cargo build --all-features
 
       - name: Test
-        run: cargo nextest run
+        run: cargo nextest run --all-features
 
       - name: Test memvfs
         run: |

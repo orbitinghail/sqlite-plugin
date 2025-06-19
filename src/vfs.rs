@@ -91,20 +91,6 @@ unsafe fn lossy_cstr<'a>(p: *const c_char) -> VfsResult<Cow<'a, str>> {
     }
 }
 
-// uses sqlite3_mprintf to allocate memory for the string using sqlite's memory allocator
-// returns a pointer to the sqlite3 allocated string
-// # Safety
-// the returned pointer must be freed using sqlite3_free
-fn sqlite3_mprintf(api: &SqliteApi, s: &str) -> VfsResult<*mut c_char> {
-    let s = CString::new(s).map_err(|_| vars::SQLITE_INTERNAL)?;
-    let p = unsafe { (api.mprintf)(s.as_ptr()) };
-    if p.is_null() {
-        Err(vars::SQLITE_NOMEM)
-    } else {
-        Ok(p)
-    }
-}
-
 macro_rules! unwrap_appdata {
     ($p_vfs:expr, $t_vfs:ty) => {
         unsafe {
@@ -210,7 +196,7 @@ pub trait Vfs: Send + Sync {
 }
 
 #[derive(Clone)]
-pub(crate) struct SqliteApi {
+pub struct SqliteApi {
     register: unsafe extern "C" fn(arg1: *mut ffi::sqlite3_vfs, arg2: c_int) -> c_int,
     find: unsafe extern "C" fn(arg1: *const c_char) -> *mut ffi::sqlite3_vfs,
     mprintf: unsafe extern "C" fn(arg1: *const c_char, ...) -> *mut c_char,
@@ -220,7 +206,7 @@ pub(crate) struct SqliteApi {
 
 impl SqliteApi {
     #[cfg(feature = "static")]
-    fn new_static() -> Self {
+    pub fn new_static() -> Self {
         Self {
             register: ffi::sqlite3_vfs_register,
             find: ffi::sqlite3_vfs_find,
@@ -230,8 +216,11 @@ impl SqliteApi {
         }
     }
 
+    /// Initializes SqliteApi from a filled `sqlite3_api_routines` object.
+    /// # Safety
+    /// `api` must be a valid, aligned pointer to a `sqlite3_api_routines` struct
     #[cfg(feature = "dynamic")]
-    fn new_dynamic(api: &ffi::sqlite3_api_routines) -> VfsResult<Self> {
+    pub unsafe fn new_dynamic(api: &ffi::sqlite3_api_routines) -> VfsResult<Self> {
         Ok(Self {
             register: api.vfs_register.ok_or(vars::SQLITE_INTERNAL)?,
             find: api.vfs_find.ok_or(vars::SQLITE_INTERNAL)?,
@@ -239,6 +228,24 @@ impl SqliteApi {
             log: api.log.ok_or(vars::SQLITE_INTERNAL)?,
             libversion_number: api.libversion_number.ok_or(vars::SQLITE_INTERNAL)?,
         })
+    }
+
+    /// Copies the provided string into a memory buffer allocated by sqlite3_mprintf.
+    /// Writes the pointer to the memory buffer to `out` if `out` is not null.
+    /// # Safety
+    /// 1. the out pointer must not be null
+    /// 2. it is the callers responsibility to eventually free the allocated buffer
+    pub unsafe fn mprintf(&self, s: &str, out: *mut *const c_char) -> VfsResult<()> {
+        let s = CString::new(s).map_err(|_| vars::SQLITE_INTERNAL)?;
+        let p = unsafe { (self.mprintf)(s.as_ptr()) };
+        if p.is_null() {
+            Err(vars::SQLITE_NOMEM)
+        } else {
+            unsafe {
+                *out = p;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -263,7 +270,7 @@ pub unsafe fn register_dynamic<T: Vfs>(
     opts: RegisterOpts,
 ) -> VfsResult<()> {
     let api = unsafe { p_api.as_ref() }.ok_or(vars::SQLITE_INTERNAL)?;
-    let sqlite_api = SqliteApi::new_dynamic(api)?;
+    let sqlite_api = unsafe { SqliteApi::new_dynamic(api)? };
     register_inner(sqlite_api, name, vfs, opts)
 }
 
@@ -589,7 +596,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
                 // write the msg back to the first element of the args array.
                 // SQLite is responsible for eventually freeing the result
                 let appdata = unwrap_appdata!(file.vfs, T)?;
-                unsafe { *args = sqlite3_mprintf(&appdata.sqlite_api, &msg)? };
+                unsafe { appdata.sqlite_api.mprintf(&msg, args)? };
             }
 
             result
