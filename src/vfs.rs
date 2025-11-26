@@ -225,7 +225,7 @@ impl SqliteApi {
         })
     }
 
-    /// Copies the provided string into a memory buffer allocated by sqlite3_mprintf.
+    /// Copies the provided string into a memory buffer allocated by `sqlite3_mprintf`.
     /// Writes the pointer to the memory buffer to `out` if `out` is not null.
     /// # Safety
     /// 1. the out pointer must not be null
@@ -245,7 +245,7 @@ impl SqliteApi {
 }
 
 pub struct RegisterOpts {
-    /// If true, make this vfs the default vfs for SQLite.
+    /// If true, make this vfs the default vfs for `SQLite`.
     pub make_default: bool,
 }
 

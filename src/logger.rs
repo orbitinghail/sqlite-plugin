@@ -34,7 +34,7 @@ impl SqliteLogger {
     }
 
     /// Log bytes directly to the `SQLite3` log handle.
-    /// Note that SQLite silently truncates writes larger than
+    /// Note that `SQLite` silently truncates writes larger than
     /// roughly 230 bytes by default. It's recommended that you
     /// split your log messages by lines before calling this method.
     pub fn log(&self, level: SqliteLogLevel, msg: &str) {

@@ -7,6 +7,8 @@
 
 .load target/debug/examples/libmemvfs.so
 .open main.db
+.mode table
+.log stdout
 
 .databases
 .vfsinfo
