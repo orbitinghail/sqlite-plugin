@@ -1,10 +1,6 @@
 // cargo build --example memvfs --features dynamic
 
-use std::{
-    ffi::{CStr, c_void},
-    os::raw::c_char,
-    sync::Arc,
-};
+use std::{ffi::c_void, os::raw::c_char, sync::Arc};
 
 use parking_lot::Mutex;
 use sqlite_plugin::{
@@ -44,33 +40,6 @@ struct MemVfs {
 
 impl Vfs for MemVfs {
     type Handle = File;
-
-    fn register_logger(&self, logger: SqliteLogger) {
-        struct LogCompat {
-            logger: Mutex<SqliteLogger>,
-        }
-
-        impl log::Log for LogCompat {
-            fn enabled(&self, _metadata: &log::Metadata) -> bool {
-                true
-            }
-
-            fn log(&self, record: &log::Record) {
-                let level = match record.level() {
-                    log::Level::Error => SqliteLogLevel::Error,
-                    log::Level::Warn => SqliteLogLevel::Warn,
-                    _ => SqliteLogLevel::Notice,
-                };
-                let msg = format!("{}", record.args());
-                self.logger.lock().log(level, msg.as_bytes());
-            }
-
-            fn flush(&self) {}
-        }
-
-        let log = LogCompat { logger: Mutex::new(logger) };
-        log::set_boxed_logger(Box::new(log)).expect("failed to setup global logger");
-    }
 
     fn open(&self, path: Option<&str>, opts: OpenOpts) -> VfsResult<Self::Handle> {
         log::debug!("open: path={:?}, opts={:?}", path, opts);
@@ -216,6 +185,33 @@ impl Vfs for MemVfs {
     }
 }
 
+fn setup_logger(logger: SqliteLogger) {
+    struct LogCompat {
+        logger: Mutex<SqliteLogger>,
+    }
+
+    impl log::Log for LogCompat {
+        fn enabled(&self, _metadata: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            let level = match record.level() {
+                log::Level::Error => SqliteLogLevel::Error,
+                log::Level::Warn => SqliteLogLevel::Warn,
+                _ => SqliteLogLevel::Notice,
+            };
+            let msg = format!("{}", record.args());
+            self.logger.lock().log(level, &msg);
+        }
+
+        fn flush(&self) {}
+    }
+
+    let log = LogCompat { logger: Mutex::new(logger) };
+    log::set_boxed_logger(Box::new(log)).expect("failed to setup global logger");
+}
+
 /// This function is called by `SQLite` when the extension is loaded. It registers
 /// the memvfs VFS with `SQLite`.
 /// # Safety
@@ -226,18 +222,17 @@ pub unsafe extern "C" fn sqlite3_memvfs_init(
     _pz_err_msg: *mut *mut c_char,
     p_api: *mut sqlite3_api_routines,
 ) -> std::os::raw::c_int {
-    let vfs = MemVfs { files: Default::default() };
-    const MEMVFS_NAME: &CStr = c"mem";
-    if let Err(err) = unsafe {
+    match unsafe {
         register_dynamic(
             p_api,
-            MEMVFS_NAME.to_owned(),
-            vfs,
+            c"mem".to_owned(),
+            MemVfs { files: Default::default() },
             RegisterOpts { make_default: true },
         )
     } {
-        return err;
-    }
+        Ok(logger) => setup_logger(logger),
+        Err(err) => return err,
+    };
 
     // set the log level to trace
     log::set_max_level(log::LevelFilter::Trace);

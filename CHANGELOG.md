@@ -2,6 +2,11 @@
 
 All notable changes will be documented in this file.
 
+## 0.5.0 - 2025-11-26
+
+- BREAKING: remove register_logger method from Vfs
+- return SqliteLogger instance from register_dynamic/register_static
+
 ## 0.4.1 - 2025-06-19
 
 - expose SqliteApi in public API
