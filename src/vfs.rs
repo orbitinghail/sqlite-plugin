@@ -142,11 +142,6 @@ pub trait VfsHandle: Send {
 pub trait Vfs: Send + Sync {
     type Handle: VfsHandle;
 
-    /// Register the provided logger with this Vfs.
-    /// This function is guaranteed to only be called once per
-    /// register_{static,dynamic} call.
-    fn register_logger(&self, logger: SqliteLogger);
-
     /// construct a canonical version of the given path
     fn canonical_path<'a>(&self, path: Cow<'a, str>) -> VfsResult<Cow<'a, str>> {
         Ok(path)
@@ -250,11 +245,16 @@ impl SqliteApi {
 }
 
 pub struct RegisterOpts {
+    /// If true, make this vfs the default vfs for SQLite.
     pub make_default: bool,
 }
 
 #[cfg(feature = "static")]
-pub fn register_static<T: Vfs>(name: CString, vfs: T, opts: RegisterOpts) -> VfsResult<()> {
+pub fn register_static<T: Vfs>(
+    name: CString,
+    vfs: T,
+    opts: RegisterOpts,
+) -> VfsResult<SqliteLogger> {
     register_inner(SqliteApi::new_static(), name, vfs, opts)
 }
 
@@ -268,7 +268,7 @@ pub unsafe fn register_dynamic<T: Vfs>(
     name: CString,
     vfs: T,
     opts: RegisterOpts,
-) -> VfsResult<()> {
+) -> VfsResult<SqliteLogger> {
     let api = unsafe { p_api.as_ref() }.ok_or(vars::SQLITE_INTERNAL)?;
     let sqlite_api = unsafe { SqliteApi::new_dynamic(api)? };
     register_inner(sqlite_api, name, vfs, opts)
@@ -279,7 +279,7 @@ fn register_inner<T: Vfs>(
     name: CString,
     vfs: T,
     opts: RegisterOpts,
-) -> VfsResult<()> {
+) -> VfsResult<SqliteLogger> {
     let version = unsafe { (sqlite_api.libversion_number)() };
     if version < MIN_SQLITE_VERSION_NUMBER {
         panic!(
@@ -310,7 +310,7 @@ fn register_inner<T: Vfs>(
         xUnfetch: None,
     };
 
-    vfs.register_logger(SqliteLogger::new(sqlite_api.log));
+    let logger = SqliteLogger::new(sqlite_api.log);
 
     let p_name = ManuallyDrop::new(name).as_ptr();
     let base_vfs = unsafe { (sqlite_api.find)(null_mut()) };
@@ -356,7 +356,7 @@ fn register_inner<T: Vfs>(
         };
         Err(result)
     } else {
-        Ok(())
+        Ok(logger)
     }
 }
 
@@ -653,9 +653,8 @@ unsafe extern "C" fn x_dlsym<T: Vfs>(
     p_vfs: *mut ffi::sqlite3_vfs,
     p_handle: *mut c_void,
     z_symbol: *const c_char,
-) -> Option<
-    unsafe extern "C" fn(arg1: *mut ffi::sqlite3_vfs, arg2: *mut c_void, zSymbol: *const c_char),
-> {
+) -> Option<unsafe extern "C" fn(arg1: *mut ffi::sqlite3_vfs, arg2: *mut c_void, arg3: *const c_char)>
+{
     if let Ok(vfs) = unwrap_base_vfs!(p_vfs, T) {
         if let Some(x_dlsym) = vfs.xDlSym {
             return unsafe { x_dlsym(vfs, p_handle, z_symbol) };
@@ -728,7 +727,8 @@ mod tests {
         flags::{CreateMode, OpenKind, OpenMode},
         mock::*,
     };
-    use alloc::vec::Vec;
+    use alloc::{sync::Arc, vec::Vec};
+    use parking_lot::Mutex;
     use rusqlite::{Connection, OpenFlags};
     use std::{boxed::Box, io::Write, println};
 
@@ -766,13 +766,17 @@ mod tests {
             }
         }
 
-        let vfs = MockVfs::new(Box::new(H {}));
-        register_static(
+        let shared = Arc::new(Mutex::new(MockState::new(Box::new(H {}))));
+        let vfs = MockVfs::new(shared.clone());
+        let logger = register_static(
             CString::new("mock").unwrap(),
             vfs,
             RegisterOpts { make_default: true },
         )
         .map_err(|_| "failed to register vfs")?;
+
+        // setup the logger
+        shared.lock().setup_logger(logger);
 
         // create a sqlite connection using the mock vfs
         let conn = Connection::open_with_flags_and_vfs(
