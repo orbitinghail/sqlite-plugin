@@ -13,16 +13,8 @@
 .databases
 .vfsinfo
 
+-- ensure that panics are handled
+pragma memvfs_panic;
+
+-- but they cause all future calls to also fail!
 CREATE TABLE t1(a, b);
-INSERT INTO t1 VALUES(1, 2);
-INSERT INTO t1 VALUES(3, 4);
-SELECT * FROM t1;
-pragma hello_vfs=1234;
-
-select * from dbstat;
-
-vacuum;
-drop table t1;
-vacuum;
-
-select * from dbstat;

@@ -37,6 +37,9 @@ pub const DEFAULT_DEVICE_CHARACTERISTICS: i32 =
 /// A `SQLite3` extended error code
 pub type SqliteErr = i32;
 
+// construct a custom SQLITE_INTERNAL error code for tracking panics
+pub const ERROR_PANIC: SqliteErr = vars::SQLITE_INTERNAL | (128 << 8);
+
 pub type VfsResult<T> = Result<T, SqliteErr>;
 
 // FileWrapper needs to be repr(C) and have sqlite3_file as it's first member
@@ -79,6 +82,29 @@ impl PragmaErr {
     }
 }
 
+#[cfg(feature = "std")]
+fn fallible(mut cb: impl FnMut() -> Result<i32, SqliteErr>) -> i32 {
+    use std::sync::atomic::Ordering;
+    use std::{panic::AssertUnwindSafe, sync::atomic::AtomicBool};
+
+    // once we panic, all future calls into the VFS will also panic as we can't
+    // be sure that we are unwind safe
+    static POISONED: AtomicBool = AtomicBool::new(false);
+    if POISONED.load(Ordering::Relaxed) {
+        return ERROR_PANIC;
+    }
+
+    let inner = AssertUnwindSafe(|| cb().unwrap_or_else(|err| err));
+    match std::panic::catch_unwind(inner) {
+        Ok(i) => i,
+        Err(_err) => {
+            POISONED.store(true, Ordering::SeqCst);
+            ERROR_PANIC
+        }
+    }
+}
+
+#[cfg(not(feature = "std"))]
 fn fallible(mut cb: impl FnMut() -> Result<i32, SqliteErr>) -> i32 {
     cb().unwrap_or_else(|err| err)
 }

@@ -29,8 +29,9 @@ bindgen = { version = "0.72", default-features = false }
 default = ["static"]
 static = []
 dynamic = []
+std = []
 
 [[example]]
 name = "memvfs"
 crate-type = ["cdylib"]
-required-features = ["dynamic"]
+required-features = ["dynamic", "std"]

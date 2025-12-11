@@ -1,4 +1,4 @@
-// cargo build --example memvfs --features dynamic
+// cargo build --example memvfs --features dynamic,std
 
 use std::{ffi::c_void, os::raw::c_char, sync::Arc};
 
@@ -181,7 +181,11 @@ impl Vfs for MemVfs {
         pragma: Pragma<'_>,
     ) -> Result<Option<String>, PragmaErr> {
         log::debug!("pragma: file={:?}, pragma={:?}", handle.name, pragma);
-        Err(PragmaErr::NotFound)
+        if pragma.name == "memvfs_panic" {
+            panic!("testing panic")
+        } else {
+            Err(PragmaErr::NotFound)
+        }
     }
 }
 

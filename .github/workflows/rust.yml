@@ -37,15 +37,23 @@ jobs:
         run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin
 
       - name: Build
-        run: cargo build --all-features
+        run: |
+          cargo build --no-default-features --features static
+          cargo build --no-default-features --features static,std
+          cargo build --no-default-features --features dynamic
+          cargo build --no-default-features --features dynamic,std
 
       - name: Test
-        run: cargo nextest run --all-features
+        run: |
+          cargo nextest run --no-default-features --features static,dynamic
+          cargo nextest run --no-default-features --features static,dynamic,std
 
       - name: Test memvfs
         run: |
-          cargo build --example memvfs --features dynamic
+          cargo build --example memvfs --features dynamic,std
           cat examples/test_memvfs.sql | sqlite3
+          cat examples/test_memvfs_panic.sql | sqlite3 >/tmp/memvfs_panic 2>&1 \
+            || grep -q "unknown error (2)" /tmp/memvfs_panic
 
       - name: Clippy
         uses: auguwu/clippy-action@94a9ff2f6920180b89e5c03d121d0af04a9d3e03 # 1.4.0
