@@ -158,17 +158,11 @@ pub trait Vfs: Send + Sync {
     fn write(&self, handle: &mut Self::Handle, offset: usize, data: &[u8]) -> VfsResult<usize>;
     fn read(&self, handle: &mut Self::Handle, offset: usize, data: &mut [u8]) -> VfsResult<usize>;
 
-    fn lock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
-        Ok(())
-    }
+    fn lock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()>;
 
-    fn unlock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
-        Ok(())
-    }
+    fn unlock(&self, handle: &mut Self::Handle, level: LockLevel) -> VfsResult<()>;
 
-    fn check_reserved_lock(&self, handle: &mut Self::Handle) -> VfsResult<bool> {
-        Ok(false)
-    }
+    fn check_reserved_lock(&self, handle: &mut Self::Handle) -> VfsResult<bool>;
 
     fn sync(&self, handle: &mut Self::Handle) -> VfsResult<()> {
         Ok(())
