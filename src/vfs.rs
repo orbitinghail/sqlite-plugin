@@ -166,6 +166,10 @@ pub trait Vfs: Send + Sync {
         Ok(())
     }
 
+    fn check_reserved_lock(&self, handle: &mut Self::Handle) -> VfsResult<bool> {
+        Ok(false)
+    }
+
     fn sync(&self, handle: &mut Self::Handle) -> VfsResult<()> {
         Ok(())
     }
@@ -298,7 +302,7 @@ fn register_inner<T: Vfs>(
         xFileSize: Some(x_file_size::<T>),
         xLock: Some(x_lock::<T>),
         xUnlock: Some(x_unlock::<T>),
-        xCheckReservedLock: None,
+        xCheckReservedLock: Some(x_check_reserved_lock::<T>),
         xFileControl: Some(x_file_control::<T>),
         xSectorSize: Some(x_sector_size::<T>),
         xDeviceCharacteristics: Some(x_device_characteristics::<T>),
@@ -547,6 +551,20 @@ unsafe extern "C" fn x_unlock<T: Vfs>(p_file: *mut ffi::sqlite3_file, raw_lock: 
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
         vfs.unlock(unsafe { file.handle.assume_init_mut() }, level)?;
+        Ok(vars::SQLITE_OK)
+    })
+}
+
+unsafe extern "C" fn x_check_reserved_lock<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    p_out: *mut c_int,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        unsafe {
+            *p_out = vfs.check_reserved_lock(file.handle.assume_init_mut())? as c_int;
+        }
         Ok(vars::SQLITE_OK)
     })
 }
