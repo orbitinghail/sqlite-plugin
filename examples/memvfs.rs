@@ -129,6 +129,11 @@ impl Vfs for MemVfs {
         Ok(())
     }
 
+    fn check_reserved_lock(&self, handle: &mut Self::Handle) -> VfsResult<bool> {
+        log::debug!("check_reserved_lock: file={:?}", handle.name);
+        Ok(false)
+    }
+
     fn write(&self, handle: &mut Self::Handle, offset: usize, buf: &[u8]) -> VfsResult<usize> {
         log::debug!(
             "write: file={:?}, offset={}, len={}",

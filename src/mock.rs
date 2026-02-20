@@ -14,7 +14,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::flags::{self, AccessFlags, OpenOpts};
+use crate::flags::{self, AccessFlags, LockLevel, OpenOpts};
 use crate::logger::{SqliteLogLevel, SqliteLogger};
 use crate::vars;
 use crate::vfs::{
@@ -255,6 +255,24 @@ impl Vfs for MockVfs {
         state.log(format_args!("sync: handle={meta:?}"));
         state.hooks.sync(*meta);
         Ok(())
+    }
+
+    fn lock(&self, meta: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
+        let state = self.state();
+        state.log(format_args!("lock: handle={meta:?} level={level:?}"));
+        Ok(())
+    }
+
+    fn unlock(&self, meta: &mut Self::Handle, level: LockLevel) -> VfsResult<()> {
+        let state = self.state();
+        state.log(format_args!("unlock: handle={meta:?} level={level:?}"));
+        Ok(())
+    }
+
+    fn check_reserved_lock(&self, meta: &mut Self::Handle) -> VfsResult<bool> {
+        let state = self.state();
+        state.log(format_args!("check_reserved_lock: handle={meta:?}"));
+        Ok(false)
     }
 
     fn close(&self, meta: Self::Handle) -> VfsResult<()> {
