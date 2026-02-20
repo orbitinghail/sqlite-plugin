@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.6.0 - 2026-02-19
+
+Added `check_reserved_lock` to Vfs. This method allows you to inform SQLite if any threads or processes currently hold a lock on the specified file. It is recommended to implement this method if you also implement the lock and unlock methods.
+
 ## 0.5.0 - 2025-11-26
 
 - BREAKING: remove register_logger method from Vfs
