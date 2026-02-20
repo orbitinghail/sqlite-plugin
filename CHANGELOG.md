@@ -2,7 +2,7 @@
 
 All notable changes will be documented in this file.
 
-## 0.7.0 (unreleased)
+## 0.7.0 - 2026-02-20
 
 - BREAKING: `Vfs::lock`, `Vfs::unlock`, and `Vfs::check_reserved_lock` no longer have default implementations and must be implemented by every `Vfs`.
 
