@@ -40,6 +40,8 @@ struct MemVfs {
 
 impl Vfs for MemVfs {
     type Handle = File;
+    // unused
+    type Region = [u8; 0];
 
     fn open(&self, path: Option<&str>, opts: OpenOpts) -> VfsResult<Self::Handle> {
         log::debug!("open: path={:?}, opts={:?}", path, opts);

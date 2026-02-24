@@ -138,6 +138,8 @@ impl MockState {
 impl Vfs for MockVfs {
     // a simple usize that represents a file handle.
     type Handle = MockHandle;
+    // unused
+    type Region = [u8; 0];
 
     fn canonical_path<'a>(&self, path: Cow<'a, str>) -> VfsResult<Cow<'a, str>> {
         let mut state = self.state();
