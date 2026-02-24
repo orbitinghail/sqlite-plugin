@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.8.0 - 2026-02-23
+
+- BREAKING: `Vfs::sector_size` and `Vfs::device_characteristics` now take a `&mut Self::Handle` parameter and return `VfsResult<i32>` instead of `i32`.
+
 ## 0.7.0 - 2026-02-20
 
 - BREAKING: `Vfs::lock`, `Vfs::unlock`, and `Vfs::check_reserved_lock` no longer have default implementations and must be implemented by every `Vfs`.
