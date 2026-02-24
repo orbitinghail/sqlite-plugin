@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use alloc::ffi::CString;
 use alloc::format;
 use alloc::string::String;
-use core::mem::{self, ManuallyDrop, MaybeUninit, size_of};
+use core::mem::{ManuallyDrop, size_of};
 use core::slice;
 use core::{
     ffi::{CStr, c_char, c_int, c_void},
@@ -45,7 +45,7 @@ pub type VfsResult<T> = Result<T, SqliteErr>;
 struct FileWrapper<Handle> {
     file: ffi::sqlite3_file,
     vfs: *mut ffi::sqlite3_vfs,
-    handle: MaybeUninit<Handle>,
+    handle: Handle,
 }
 
 struct AppData<Vfs> {
@@ -371,7 +371,6 @@ unsafe extern "C" fn x_open<T: Vfs>(
         let vfs = unwrap_vfs!(p_vfs, T)?;
         let handle = vfs.open(name.as_ref().map(|s| s.as_ref()), opts)?;
 
-        let out_file = unwrap_file!(p_file, T)?;
         let appdata = unwrap_appdata!(p_vfs, T)?;
 
         if let Some(p_out_flags) = unsafe { p_out_flags.as_mut() } {
@@ -385,9 +384,17 @@ unsafe extern "C" fn x_open<T: Vfs>(
             *p_out_flags = out_flags;
         }
 
-        out_file.file.pMethods = &appdata.io_methods;
-        out_file.vfs = p_vfs;
-        out_file.handle.write(handle);
+        let out_file = p_file.cast::<FileWrapper<T::Handle>>();
+        unsafe {
+            core::ptr::write(
+                out_file,
+                FileWrapper {
+                    file: ffi::sqlite3_file { pMethods: &appdata.io_methods },
+                    vfs: p_vfs,
+                    handle,
+                },
+            );
+        }
 
         Ok(vars::SQLITE_OK)
     })
@@ -447,11 +454,9 @@ unsafe extern "C" fn x_full_pathname<T: Vfs>(
 
 unsafe extern "C" fn x_close<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_int {
     fallible(|| {
-        let file = unwrap_file!(p_file, T)?;
+        let file = unsafe { core::ptr::read(p_file.cast::<FileWrapper<T::Handle>>()) };
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        let handle = mem::replace(&mut file.handle, MaybeUninit::uninit());
-        let handle = unsafe { handle.assume_init() };
-        vfs.close(handle)?;
+        vfs.close(file.handle)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -468,7 +473,7 @@ unsafe extern "C" fn x_read<T: Vfs>(
         let buf_len: usize = i_amt.try_into().map_err(|_| vars::SQLITE_IOERR_READ)?;
         let offset: usize = i_ofst.try_into().map_err(|_| vars::SQLITE_IOERR_READ)?;
         let buf = unsafe { slice::from_raw_parts_mut(buf.cast::<u8>(), buf_len) };
-        vfs.read(unsafe { file.handle.assume_init_mut() }, offset, buf)?;
+        vfs.read(&mut file.handle, offset, buf)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -485,7 +490,7 @@ unsafe extern "C" fn x_write<T: Vfs>(
         let buf_len: usize = i_amt.try_into().map_err(|_| vars::SQLITE_IOERR_WRITE)?;
         let offset: usize = i_ofst.try_into().map_err(|_| vars::SQLITE_IOERR_WRITE)?;
         let buf = unsafe { slice::from_raw_parts(buf.cast::<u8>(), buf_len) };
-        let n = vfs.write(unsafe { file.handle.assume_init_mut() }, offset, buf)?;
+        let n = vfs.write(&mut file.handle, offset, buf)?;
         if n != buf_len {
             return Err(vars::SQLITE_IOERR_WRITE);
         }
@@ -501,7 +506,7 @@ unsafe extern "C" fn x_truncate<T: Vfs>(
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
         let size: usize = size.try_into().map_err(|_| vars::SQLITE_IOERR_TRUNCATE)?;
-        vfs.truncate(unsafe { file.handle.assume_init_mut() }, size)?;
+        vfs.truncate(&mut file.handle, size)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -510,7 +515,7 @@ unsafe extern "C" fn x_sync<T: Vfs>(p_file: *mut ffi::sqlite3_file, _flags: c_in
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.sync(unsafe { file.handle.assume_init_mut() })?;
+        vfs.sync(&mut file.handle)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -522,7 +527,7 @@ unsafe extern "C" fn x_file_size<T: Vfs>(
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        let size = vfs.file_size(unsafe { file.handle.assume_init_mut() })?;
+        let size = vfs.file_size(&mut file.handle)?;
         let p_size = unsafe { p_size.as_mut() }.ok_or(vars::SQLITE_INTERNAL)?;
         *p_size = size.try_into().map_err(|_| vars::SQLITE_IOERR_FSTAT)?;
         Ok(vars::SQLITE_OK)
@@ -534,7 +539,7 @@ unsafe extern "C" fn x_lock<T: Vfs>(p_file: *mut ffi::sqlite3_file, raw_lock: c_
         let level: LockLevel = raw_lock.into();
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.lock(unsafe { file.handle.assume_init_mut() }, level)?;
+        vfs.lock(&mut file.handle, level)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -544,7 +549,7 @@ unsafe extern "C" fn x_unlock<T: Vfs>(p_file: *mut ffi::sqlite3_file, raw_lock: 
         let level: LockLevel = raw_lock.into();
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.unlock(unsafe { file.handle.assume_init_mut() }, level)?;
+        vfs.unlock(&mut file.handle, level)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -557,7 +562,7 @@ unsafe extern "C" fn x_check_reserved_lock<T: Vfs>(
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
         unsafe {
-            *p_out = vfs.check_reserved_lock(file.handle.assume_init_mut())? as c_int;
+            *p_out = vfs.check_reserved_lock(&mut file.handle)? as c_int;
         }
         Ok(vars::SQLITE_OK)
     })
@@ -598,7 +603,7 @@ unsafe extern "C" fn x_file_control<T: Vfs>(
             };
             let pragma = Pragma { name: &name, arg: arg.as_deref() };
 
-            let (result, msg) = match vfs.pragma(unsafe { file.handle.assume_init_mut() }, pragma) {
+            let (result, msg) = match vfs.pragma(&mut file.handle, pragma) {
                 Ok(msg) => (Ok(vars::SQLITE_OK), msg),
                 Err(PragmaErr::NotFound) => (Err(vars::SQLITE_NOTFOUND), None),
                 Err(PragmaErr::Fail(err, msg)) => (Err(err), msg),
@@ -623,7 +628,7 @@ unsafe extern "C" fn x_sector_size<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.sector_size(unsafe { file.handle.assume_init_mut() })
+        vfs.sector_size(&mut file.handle)
     })
 }
 
@@ -631,7 +636,7 @@ unsafe extern "C" fn x_device_characteristics<T: Vfs>(p_file: *mut ffi::sqlite3_
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.device_characteristics(unsafe { file.handle.assume_init_mut() })
+        vfs.device_characteristics(&mut file.handle)
     })
 }
 
