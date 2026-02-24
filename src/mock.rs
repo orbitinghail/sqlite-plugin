@@ -47,8 +47,8 @@ pub trait Hooks {
     ) -> Result<Option<String>, PragmaErr> {
         Err(PragmaErr::NotFound)
     }
-    fn sector_size(&mut self) {}
-    fn device_characteristics(&mut self) {
+    fn sector_size(&mut self, handle: MockHandle) {}
+    fn device_characteristics(&mut self, handle: MockHandle) {
         println!("device_characteristics");
     }
 }
@@ -297,17 +297,17 @@ impl Vfs for MockVfs {
         state.hooks.pragma(*meta, pragma)
     }
 
-    fn sector_size(&self) -> i32 {
+    fn sector_size(&self, handle: &mut Self::Handle) -> VfsResult<i32> {
         let mut state = self.state();
         state.log(format_args!("sector_size"));
-        state.hooks.sector_size();
-        DEFAULT_SECTOR_SIZE
+        state.hooks.sector_size(*handle);
+        Ok(DEFAULT_SECTOR_SIZE)
     }
 
-    fn device_characteristics(&self) -> i32 {
+    fn device_characteristics(&self, handle: &mut Self::Handle) -> VfsResult<i32> {
         let mut state = self.state();
         state.log(format_args!("device_characteristics"));
-        state.hooks.device_characteristics();
-        DEFAULT_DEVICE_CHARACTERISTICS
+        state.hooks.device_characteristics(*handle);
+        Ok(DEFAULT_DEVICE_CHARACTERISTICS)
     }
 }
