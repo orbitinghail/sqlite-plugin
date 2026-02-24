@@ -179,12 +179,12 @@ pub trait Vfs: Send + Sync {
     }
 
     // system queries
-    fn sector_size(&self) -> i32 {
-        DEFAULT_SECTOR_SIZE
+    fn sector_size(&self, handle: &mut Self::Handle) -> VfsResult<i32> {
+        Ok(DEFAULT_SECTOR_SIZE)
     }
 
-    fn device_characteristics(&self) -> i32 {
-        DEFAULT_DEVICE_CHARACTERISTICS
+    fn device_characteristics(&self, handle: &mut Self::Handle) -> VfsResult<i32> {
+        Ok(DEFAULT_DEVICE_CHARACTERISTICS)
     }
 }
 
@@ -623,7 +623,7 @@ unsafe extern "C" fn x_sector_size<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        Ok(vfs.sector_size())
+        vfs.sector_size(unsafe { file.handle.assume_init_mut() })
     })
 }
 
@@ -631,7 +631,7 @@ unsafe extern "C" fn x_device_characteristics<T: Vfs>(p_file: *mut ffi::sqlite3_
     fallible(|| {
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
-        Ok(vfs.device_characteristics())
+        vfs.device_characteristics(unsafe { file.handle.assume_init_mut() })
     })
 }
 
