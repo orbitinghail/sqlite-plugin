@@ -1,4 +1,4 @@
-use crate::flags::{AccessFlags, LockLevel, OpenOpts};
+use crate::flags::{AccessFlags, LockLevel, OpenOpts, ShmLockMode};
 use crate::logger::SqliteLogger;
 use crate::vars::SQLITE_ERROR;
 use crate::{ffi, vars};
@@ -11,7 +11,7 @@ use core::mem::{ManuallyDrop, size_of};
 use core::slice;
 use core::{
     ffi::{CStr, c_char, c_int, c_void},
-    ptr::null_mut,
+    ptr::{NonNull, null_mut},
 };
 
 /// The minimim supported `SQLite` version.
@@ -186,6 +186,32 @@ pub trait Vfs: Send + Sync {
     fn device_characteristics(&self, handle: &mut Self::Handle) -> VfsResult<i32> {
         Ok(DEFAULT_DEVICE_CHARACTERISTICS)
     }
+
+    fn shm_map(
+        &self,
+        handle: &mut Self::Handle,
+        region_idx: usize,
+        region_size: usize,
+        extend: bool,
+    ) -> VfsResult<Option<NonNull<u8>>> {
+        Err(vars::SQLITE_READONLY_CANTINIT)
+    }
+
+    fn shm_lock(
+        &self,
+        handle: &mut Self::Handle,
+        offset: u32,
+        count: u32,
+        mode: ShmLockMode,
+    ) -> VfsResult<()> {
+        Err(vars::SQLITE_IOERR)
+    }
+
+    fn shm_barrier(&self, handle: &mut Self::Handle) {}
+
+    fn shm_unmap(&self, handle: &mut Self::Handle, delete: bool) -> VfsResult<()> {
+        Err(vars::SQLITE_IOERR)
+    }
 }
 
 #[derive(Clone)]
@@ -300,10 +326,10 @@ fn register_inner<T: Vfs>(
         xFileControl: Some(x_file_control::<T>),
         xSectorSize: Some(x_sector_size::<T>),
         xDeviceCharacteristics: Some(x_device_characteristics::<T>),
-        xShmMap: None,
-        xShmLock: None,
-        xShmBarrier: None,
-        xShmUnmap: None,
+        xShmMap: Some(x_shm_map::<T>),
+        xShmLock: Some(x_shm_lock::<T>),
+        xShmBarrier: Some(x_shm_barrier::<T>),
+        xShmUnmap: Some(x_shm_unmap::<T>),
         xFetch: None,
         xUnfetch: None,
     };
@@ -637,6 +663,69 @@ unsafe extern "C" fn x_device_characteristics<T: Vfs>(p_file: *mut ffi::sqlite3_
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
         vfs.device_characteristics(&mut file.handle)
+    })
+}
+
+unsafe extern "C" fn x_shm_map<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    pg: c_int,
+    pgsz: c_int,
+    extend: c_int,
+    p_page: *mut *mut c_void,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        if let Some(region) = vfs.shm_map(
+            &mut file.handle,
+            pg.try_into().map_err(|_| vars::SQLITE_IOERR)?,
+            pgsz.try_into().map_err(|_| vars::SQLITE_IOERR)?,
+            extend != 0,
+        )? {
+            unsafe { *p_page = region.as_ptr() as *mut c_void }
+        } else {
+            unsafe { *p_page = null_mut() }
+        }
+        Ok(vars::SQLITE_OK)
+    })
+}
+
+unsafe extern "C" fn x_shm_lock<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    offset: c_int,
+    n: c_int,
+    flags: c_int,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        vfs.shm_lock(
+            &mut file.handle,
+            offset.try_into().map_err(|_| vars::SQLITE_IOERR)?,
+            n.try_into().map_err(|_| vars::SQLITE_IOERR)?,
+            ShmLockMode::try_from(flags)?,
+        )?;
+        Ok(vars::SQLITE_OK)
+    })
+}
+
+unsafe extern "C" fn x_shm_barrier<T: Vfs>(p_file: *mut ffi::sqlite3_file) {
+    if let Ok(file) = unwrap_file!(p_file, T) {
+        if let Ok(vfs) = unwrap_vfs!(file.vfs, T) {
+            vfs.shm_barrier(&mut file.handle)
+        }
+    }
+}
+
+unsafe extern "C" fn x_shm_unmap<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    delete_flag: c_int,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        vfs.shm_unmap(&mut file.handle, delete_flag != 0)?;
+        Ok(vars::SQLITE_OK)
     })
 }
 
