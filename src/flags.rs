@@ -178,3 +178,29 @@ impl From<i32> for LockLevel {
         }
     }
 }
+
+#[derive(Copy, Clone, Debug)]
+pub enum ShmLockMode {
+    LockShared,
+    LockExclusive,
+    UnlockShared,
+    UnlockExclusive,
+}
+
+impl TryFrom<i32> for ShmLockMode {
+    type Error = i32;
+
+    fn try_from(flags: i32) -> Result<Self, Self::Error> {
+        const LOCK_SHARED: i32 = vars::SQLITE_SHM_LOCK | vars::SQLITE_SHM_SHARED;
+        const LOCK_EXCLUSIVE: i32 = vars::SQLITE_SHM_LOCK | vars::SQLITE_SHM_EXCLUSIVE;
+        const UNLOCK_SHARED: i32 = vars::SQLITE_SHM_UNLOCK | vars::SQLITE_SHM_SHARED;
+        const UNLOCK_EXCLUSIVE: i32 = vars::SQLITE_SHM_UNLOCK | vars::SQLITE_SHM_EXCLUSIVE;
+        Ok(match flags {
+            LOCK_SHARED => Self::LockShared,
+            LOCK_EXCLUSIVE => Self::LockExclusive,
+            UNLOCK_SHARED => Self::UnlockShared,
+            UNLOCK_EXCLUSIVE => Self::UnlockExclusive,
+            _ => return Err(vars::SQLITE_IOERR),
+        })
+    }
+}
