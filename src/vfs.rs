@@ -385,6 +385,8 @@ unsafe extern "C" fn x_open<T: Vfs>(
         }
 
         let out_file = p_file.cast::<FileWrapper<T::Handle>>();
+        // Safety: SQLite owns the heap allocation backing p_file (it handles malloc/free).
+        // We use ptr::write to initialize that allocation directly.
         unsafe {
             core::ptr::write(
                 out_file,
@@ -454,9 +456,24 @@ unsafe extern "C" fn x_full_pathname<T: Vfs>(
 
 unsafe extern "C" fn x_close<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_int {
     fallible(|| {
-        let file = unsafe { core::ptr::read(p_file.cast::<FileWrapper<T::Handle>>()) };
-        let vfs = unwrap_vfs!(file.vfs, T)?;
-        vfs.close(file.handle)?;
+        // Safety: SQLite owns the heap allocation backing p_file (it handles
+        // malloc/free). We use ptr::read to copy our Handle out of that
+        // allocation so it can be passed to vfs.close() and properly dropped.
+        // SQLite will not call any other file methods after x_close without
+        // first calling x_open to reinitialize the handle.
+        let (vfs, handle) = unsafe {
+            // verify p_file is not null and get a mutable reference
+            let p_file_ref = p_file.as_mut().ok_or(vars::SQLITE_INTERNAL)?;
+            // set pMethods to null, signaling to SQLite that the file is closed
+            p_file_ref.pMethods = core::ptr::null();
+
+            // extract a copy of the FileWrapper
+            let file = core::ptr::read(p_file.cast::<FileWrapper<T::Handle>>());
+            (file.vfs, file.handle)
+        };
+
+        let vfs = unwrap_vfs!(vfs, T)?;
+        vfs.close(handle)?;
         Ok(vars::SQLITE_OK)
     })
 }
@@ -823,6 +840,8 @@ mod tests {
         let n = blob.write(b"hello")?;
         assert_eq!(n, 5);
 
+        blob.close()?;
+
         // query the table for the blob and print it
         let mut stmt = conn.prepare("select data from b")?;
         let mut rows = stmt.query([])?;
@@ -830,6 +849,10 @@ mod tests {
             let data: Vec<u8> = row.get(0)?;
             assert_eq!(&data[0..5], b"hello");
         }
+        drop(rows);
+        drop(stmt);
+
+        conn.close().expect("failed to close connection");
 
         Ok(())
     }
