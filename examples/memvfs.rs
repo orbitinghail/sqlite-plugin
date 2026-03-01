@@ -1,10 +1,10 @@
 // cargo build --example memvfs --features dynamic
 
-use std::{ffi::c_void, os::raw::c_char, sync::Arc};
+use std::{ffi::c_void, os::raw::c_char, ptr::NonNull, sync::Arc};
 
 use parking_lot::Mutex;
 use sqlite_plugin::{
-    flags::{AccessFlags, LockLevel, OpenOpts},
+    flags::{AccessFlags, LockLevel, OpenOpts, ShmLockMode},
     logger::{SqliteLogLevel, SqliteLogger},
     sqlite3_api_routines, vars,
     vfs::{Pragma, PragmaErr, RegisterOpts, Vfs, VfsHandle, VfsResult, register_dynamic},
@@ -14,6 +14,8 @@ use sqlite_plugin::{
 struct File {
     name: Option<String>,
     data: Arc<Mutex<Vec<u8>>>,
+    /// Single shared-memory page used for WAL index.
+    shm: Arc<Mutex<Option<Vec<u8>>>>,
     delete_on_close: bool,
     opts: OpenOpts,
 }
@@ -65,6 +67,7 @@ impl Vfs for MemVfs {
             let file = File {
                 name: Some(path.to_owned()),
                 data: Default::default(),
+                shm: Default::default(),
                 delete_on_close: opts.delete_on_close(),
                 opts,
             };
@@ -74,6 +77,7 @@ impl Vfs for MemVfs {
             let file = File {
                 name: None,
                 data: Default::default(),
+                shm: Default::default(),
                 delete_on_close: opts.delete_on_close(),
                 opts,
             };
@@ -187,6 +191,65 @@ impl Vfs for MemVfs {
     ) -> Result<Option<String>, PragmaErr> {
         log::debug!("pragma: file={:?}, pragma={:?}", handle.name, pragma);
         Err(PragmaErr::NotFound)
+    }
+
+    fn shm_map(
+        &self,
+        handle: &mut Self::Handle,
+        region_idx: usize,
+        region_size: usize,
+        extend: bool,
+    ) -> VfsResult<Option<NonNull<u8>>> {
+        log::debug!(
+            "shm_map: file={:?}, region_idx={}, region_size={}, extend={}",
+            handle.name,
+            region_idx,
+            region_size,
+            extend
+        );
+
+        assert_eq!(region_idx, 0, "memvfs only supports a single shm region");
+
+        let mut shm = handle.shm.lock();
+        if shm.is_none() {
+            if !extend {
+                return Ok(None);
+            }
+            *shm = Some(vec![0u8; region_size]);
+        }
+        let buf = shm.as_mut().unwrap();
+        Ok(NonNull::new(buf.as_mut_ptr()))
+    }
+
+    fn shm_lock(
+        &self,
+        handle: &mut Self::Handle,
+        offset: u32,
+        count: u32,
+        mode: ShmLockMode,
+    ) -> VfsResult<()> {
+        log::debug!(
+            "shm_lock: file={:?}, offset={}, count={}, mode={:?}",
+            handle.name,
+            offset,
+            count,
+            mode
+        );
+        // No-op: single-process in-memory VFS needs no locking.
+        Ok(())
+    }
+
+    fn shm_barrier(&self, handle: &mut Self::Handle) {
+        log::debug!("shm_barrier: file={:?}", handle.name);
+        // No-op: single-process, no cross-process memory ordering needed.
+    }
+
+    fn shm_unmap(&self, handle: &mut Self::Handle, delete: bool) -> VfsResult<()> {
+        log::debug!("shm_unmap: file={:?}, delete={}", handle.name, delete);
+        if delete {
+            *handle.shm.lock() = None;
+        }
+        Ok(())
     }
 }
 
