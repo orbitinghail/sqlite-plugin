@@ -2,6 +2,11 @@
 
 All notable changes will be documented in this file.
 
+## 0.9.0 - 2026-02-28
+
+- Added shared memory hooks to Vfs (thanks @bkoropoff)
+- Improved safety of file handle initialization and destruction using `ptr::write`/`ptr::read` (thanks @bkoropoff)
+
 ## 0.8.0 - 2026-02-23
 
 - BREAKING: `Vfs::sector_size` and `Vfs::device_characteristics` now take a `&mut Self::Handle` parameter and return `VfsResult<i32>` instead of `i32`.
