@@ -212,6 +212,41 @@ pub trait Vfs: Send + Sync {
     fn shm_unmap(&self, handle: &mut Self::Handle, delete: bool) -> VfsResult<()> {
         Err(vars::SQLITE_IOERR)
     }
+
+    /// Memory-mapped page read (xFetch). Return a pointer to `amt` bytes of
+    /// the file starting at `offset`, or `Ok(None)` to decline and have SQLite
+    /// fall back to `xRead`.
+    ///
+    /// The default implementation declines all mmap requests. Override this to
+    /// enable memory-mapped I/O for your VFS (e.g. mmap the database file).
+    ///
+    /// # Safety contract
+    ///
+    /// The returned pointer must remain valid until `unfetch` is called with
+    /// the same offset. SQLite may read from the pointer concurrently from
+    /// multiple threads.
+    fn fetch(
+        &self,
+        handle: &mut Self::Handle,
+        offset: i64,
+        amt: usize,
+    ) -> VfsResult<Option<NonNull<u8>>> {
+        Ok(None)
+    }
+
+    /// Release a memory-mapped page previously returned by `fetch`.
+    ///
+    /// If `ptr` is null, this is a hint that the VFS should reduce its
+    /// memory-mapped footprint (SQLite calls this when shrinking mmap).
+    /// The default implementation is a no-op.
+    fn unfetch(
+        &self,
+        handle: &mut Self::Handle,
+        offset: i64,
+        ptr: *mut u8,
+    ) -> VfsResult<()> {
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -330,8 +365,8 @@ fn register_inner<T: Vfs>(
         xShmLock: Some(x_shm_lock::<T>),
         xShmBarrier: Some(x_shm_barrier::<T>),
         xShmUnmap: Some(x_shm_unmap::<T>),
-        xFetch: None,
-        xUnfetch: None,
+        xFetch: Some(x_fetch::<T>),
+        xUnfetch: Some(x_unfetch::<T>),
     };
 
     let logger = SqliteLogger::new(sqlite_api.log);
@@ -742,6 +777,38 @@ unsafe extern "C" fn x_shm_unmap<T: Vfs>(
         let file = unwrap_file!(p_file, T)?;
         let vfs = unwrap_vfs!(file.vfs, T)?;
         vfs.shm_unmap(&mut file.handle, delete_flag != 0)?;
+        Ok(vars::SQLITE_OK)
+    })
+}
+
+unsafe extern "C" fn x_fetch<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    i_ofst: ffi::sqlite3_int64,
+    i_amt: c_int,
+    pp: *mut *mut c_void,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        let amt: usize = i_amt.try_into().map_err(|_| vars::SQLITE_IOERR)?;
+        if let Some(ptr) = vfs.fetch(&mut file.handle, i_ofst, amt)? {
+            unsafe { *pp = ptr.as_ptr() as *mut c_void }
+        } else {
+            unsafe { *pp = null_mut() }
+        }
+        Ok(vars::SQLITE_OK)
+    })
+}
+
+unsafe extern "C" fn x_unfetch<T: Vfs>(
+    p_file: *mut ffi::sqlite3_file,
+    i_ofst: ffi::sqlite3_int64,
+    p: *mut c_void,
+) -> c_int {
+    fallible(|| {
+        let file = unwrap_file!(p_file, T)?;
+        let vfs = unwrap_vfs!(file.vfs, T)?;
+        vfs.unfetch(&mut file.handle, i_ofst, p as *mut u8)?;
         Ok(vars::SQLITE_OK)
     })
 }
