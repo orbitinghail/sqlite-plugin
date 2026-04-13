@@ -313,7 +313,11 @@ fn register_inner<T: Vfs>(
     }
 
     let io_methods = ffi::sqlite3_io_methods {
-        iVersion: 3,
+        // iVersion 2 = SHM/WAL support (xShmMap through xShmUnmap).
+        // iVersion 3 requires xFetch/xUnfetch to be non-null, but they are
+        // currently None. Setting 3 with null xFetch causes SEGFAULT when
+        // SQLite calls xFetch during WAL checkpoint under concurrent load.
+        iVersion: 2,
         xClose: Some(x_close::<T>),
         xRead: Some(x_read::<T>),
         xWrite: Some(x_write::<T>),
