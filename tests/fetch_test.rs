@@ -1,7 +1,8 @@
 //! Tests for xFetch/xUnfetch (iVersion 3) support.
 //!
 //! Implements a minimal file-backed VFS with real mmap-based fetch/unfetch.
-//! Uses an atomic counter to prove SQLite actually calls fetch().
+//! Each VFS instance has its own atomic counters to prove SQLite calls
+//! fetch() and unfetch(), safe for parallel test execution.
 
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::FileExt;
@@ -9,6 +10,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use sqlite_plugin::flags::{AccessFlags, LockLevel, OpenOpts};
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult};
@@ -16,14 +18,17 @@ use sqlite_plugin::vars;
 
 static VFS_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-// Global counters to prove fetch/unfetch are called
-static FETCH_COUNT: AtomicU64 = AtomicU64::new(0);
-static UNFETCH_COUNT: AtomicU64 = AtomicU64::new(0);
+/// Per-VFS counters for fetch/unfetch calls. Returned from setup() so each
+/// test gets its own counters, safe for parallel execution.
+struct FetchCounters {
+    fetch: AtomicU64,
+    unfetch: AtomicU64,
+}
 
 struct Handle {
     file: std::fs::File,
+    #[allow(dead_code)]
     path: PathBuf,
-    // Track mmap for fetch/unfetch
     mmap_ptr: Option<*mut u8>,
     mmap_len: usize,
 }
@@ -43,13 +48,16 @@ impl Drop for Handle {
     }
 }
 
-struct FetchVfs(PathBuf);
+struct FetchVfs {
+    dir: PathBuf,
+    counters: Arc<FetchCounters>,
+}
 
 impl Vfs for FetchVfs {
     type Handle = Handle;
 
     fn open(&self, path: Option<&str>, _: OpenOpts) -> VfsResult<Self::Handle> {
-        let p = self.0.join(path.unwrap_or("temp.db"));
+        let p = self.dir.join(path.unwrap_or("temp.db"));
         if let Some(d) = p.parent() { let _ = fs::create_dir_all(d); }
         let file = OpenOptions::new().read(true).write(true).create(true).open(&p)
             .map_err(|_| vars::SQLITE_CANTOPEN)?;
@@ -57,11 +65,11 @@ impl Vfs for FetchVfs {
     }
 
     fn delete(&self, path: &str) -> VfsResult<()> {
-        let _ = fs::remove_file(self.0.join(path)); Ok(())
+        let _ = fs::remove_file(self.dir.join(path)); Ok(())
     }
 
     fn access(&self, path: &str, _: AccessFlags) -> VfsResult<bool> {
-        Ok(self.0.join(path).exists())
+        Ok(self.dir.join(path).exists())
     }
 
     fn file_size(&self, h: &mut Self::Handle) -> VfsResult<usize> {
@@ -69,7 +77,6 @@ impl Vfs for FetchVfs {
     }
 
     fn truncate(&self, h: &mut Self::Handle, sz: usize) -> VfsResult<()> {
-        // Invalidate mmap on truncate
         if let Some(ptr) = h.mmap_ptr.take() {
             unsafe { libc::munmap(ptr as *mut libc::c_void, h.mmap_len); }
             h.mmap_len = 0;
@@ -102,7 +109,7 @@ impl Vfs for FetchVfs {
         offset: i64,
         amt: usize,
     ) -> VfsResult<Option<NonNull<u8>>> {
-        FETCH_COUNT.fetch_add(1, Ordering::Relaxed);
+        self.counters.fetch.fetch_add(1, Ordering::Relaxed);
 
         let file_len = h.file.metadata().map_err(|_| vars::SQLITE_IOERR)?.len() as usize;
         let end = offset as usize + amt;
@@ -110,9 +117,7 @@ impl Vfs for FetchVfs {
             return Ok(None);
         }
 
-        // Ensure file is mmap'd with enough coverage
         if h.mmap_ptr.is_none() || h.mmap_len < end {
-            // Unmap old mapping if it exists
             if let Some(ptr) = h.mmap_ptr.take() {
                 unsafe { libc::munmap(ptr as *mut libc::c_void, h.mmap_len); }
             }
@@ -145,31 +150,34 @@ impl Vfs for FetchVfs {
         _offset: i64,
         _ptr: *mut u8,
     ) -> VfsResult<()> {
-        UNFETCH_COUNT.fetch_add(1, Ordering::Relaxed);
-        // We keep the mmap alive for the handle's lifetime.
-        // Individual unfetch calls don't need to unmap.
+        self.counters.unfetch.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 }
 
-fn setup(prefix: &str) -> (tempfile::TempDir, String) {
+fn setup(prefix: &str) -> (tempfile::TempDir, String, Arc<FetchCounters>) {
     let dir = tempfile::tempdir().expect("tmpdir");
     let name = format!("{}_{}", prefix, VFS_COUNTER.fetch_add(1, Ordering::Relaxed));
-    let vfs = FetchVfs(dir.path().to_path_buf());
+    let counters = Arc::new(FetchCounters {
+        fetch: AtomicU64::new(0),
+        unfetch: AtomicU64::new(0),
+    });
+    let vfs = FetchVfs {
+        dir: dir.path().to_path_buf(),
+        counters: Arc::clone(&counters),
+    };
     sqlite_plugin::vfs::register_static(
         std::ffi::CString::new(name.as_str()).expect("name"),
         vfs, RegisterOpts { make_default: false },
     ).expect("register");
-    (dir, name)
+    (dir, name, counters)
 }
 
 /// fetch() is called by SQLite when mmap_size > 0.
 /// Verify data roundtrips correctly through mmap'd reads.
 #[test]
 fn test_fetch_mmap_reads() {
-    let before = FETCH_COUNT.load(Ordering::Relaxed);
-
-    let (dir, vfs) = setup("mmap");
+    let (dir, vfs, counters) = setup("mmap");
     let conn = rusqlite::Connection::open_with_flags_and_vfs(
         dir.path().join("test.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
@@ -180,31 +188,37 @@ fn test_fetch_mmap_reads() {
     conn.execute_batch("PRAGMA mmap_size=1048576").expect("mmap_size");
     conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)", []).expect("create");
 
-    // Insert enough data that SQLite will mmap pages
     for i in 0..200 {
         conn.execute("INSERT INTO t VALUES (?, ?)", (i, format!("value_{i}"))).expect("insert");
     }
 
-    // Read back -- these reads should go through xFetch (mmap)
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0)).expect("count");
     assert_eq!(count, 200);
 
     let v: String = conn.query_row("SELECT v FROM t WHERE id=42", [], |r| r.get(0)).expect("select");
     assert_eq!(v, "value_42");
 
-    let after = FETCH_COUNT.load(Ordering::Relaxed);
+    let fetches = counters.fetch.load(Ordering::Relaxed);
     assert!(
-        after > before,
-        "fetch() should have been called at least once (before={}, after={})",
-        before, after,
+        fetches > 0,
+        "fetch() should have been called at least once (got {})",
+        fetches,
     );
-    eprintln!("fetch called {} times", after - before);
+
+    let unfetches = counters.unfetch.load(Ordering::Relaxed);
+    assert!(
+        unfetches > 0,
+        "unfetch() should have been called at least once (got {})",
+        unfetches,
+    );
+
+    eprintln!("fetch called {} times, unfetch called {} times", fetches, unfetches);
 }
 
 /// Enough writes to trigger auto-checkpoint, exercising fetch during checkpoint.
 #[test]
 fn test_fetch_survives_checkpoint() {
-    let (dir, vfs) = setup("ckpt");
+    let (dir, vfs, counters) = setup("ckpt");
     let conn = rusqlite::Connection::open_with_flags_and_vfs(
         dir.path().join("test.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
@@ -219,4 +233,9 @@ fn test_fetch_survives_checkpoint() {
 
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0)).expect("count");
     assert_eq!(count, 2500);
+
+    assert!(
+        counters.fetch.load(Ordering::Relaxed) > 0,
+        "fetch() should have been called during checkpoint workload",
+    );
 }
