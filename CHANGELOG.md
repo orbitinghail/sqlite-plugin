@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.10.0 - 2026-04-25
+
+- Added `fetch` and `unfetch` methods to `Vfs` for memory-mapped I/O support (xFetch/xUnfetch), bumping the VFS to iVersion 3 (thanks @russellromney)
+
 ## 0.9.0 - 2026-02-28
 
 - Added shared memory hooks to Vfs (thanks @bkoropoff)
