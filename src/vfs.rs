@@ -214,7 +214,7 @@ pub trait Vfs: Send + Sync {
     }
 
     /// Memory-mapped page read (xFetch). Return a pointer to `amt` bytes of
-    /// the file starting at `offset`, or `Ok(None)` to decline and have SQLite
+    /// the file starting at `offset`, or `Ok(None)` to decline and have `SQLite`
     /// fall back to `xRead`.
     ///
     /// The default implementation declines all mmap requests. Override this to
@@ -223,7 +223,7 @@ pub trait Vfs: Send + Sync {
     /// # Safety contract
     ///
     /// The returned pointer must remain valid until `unfetch` is called with
-    /// the same offset. SQLite may read from the pointer concurrently from
+    /// the same offset. `SQLite` may read from the pointer concurrently from
     /// multiple threads.
     fn fetch(
         &self,
@@ -237,7 +237,7 @@ pub trait Vfs: Send + Sync {
     /// Release a memory-mapped page previously returned by `fetch`.
     ///
     /// If `ptr` is null, this is a hint that the VFS should reduce its
-    /// memory-mapped footprint (SQLite calls this when shrinking mmap).
+    /// memory-mapped footprint (`SQLite` calls this when shrinking mmap).
     /// The default implementation is a no-op.
     fn unfetch(&self, handle: &mut Self::Handle, offset: i64, ptr: *mut u8) -> VfsResult<()> {
         Ok(())
