@@ -239,12 +239,7 @@ pub trait Vfs: Send + Sync {
     /// If `ptr` is null, this is a hint that the VFS should reduce its
     /// memory-mapped footprint (SQLite calls this when shrinking mmap).
     /// The default implementation is a no-op.
-    fn unfetch(
-        &self,
-        handle: &mut Self::Handle,
-        offset: i64,
-        ptr: *mut u8,
-    ) -> VfsResult<()> {
+    fn unfetch(&self, handle: &mut Self::Handle, offset: i64, ptr: *mut u8) -> VfsResult<()> {
         Ok(())
     }
 }
