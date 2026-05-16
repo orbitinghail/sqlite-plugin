@@ -2,6 +2,11 @@
 
 All notable changes will be documented in this file.
 
+## 0.10.1 - 2026-05-15
+
+- Fixed `x_open` leaving `sqlite3_file.pMethods` uninitialized when the underlying `Vfs::open` returns an error. `pMethods` is now set to NULL up front so SQLite can correctly skip `xClose` on failure (thanks @m-vze)
+- Fixed `x_read` silently returning `SQLITE_OK` on short reads. The tail of the read buffer is now zero-filled and `SQLITE_IOERR_SHORT_READ` is returned, as required by the SQLite VFS contract (thanks @m-vze)
+
 ## 0.10.0 - 2026-04-25
 
 - Added `fetch` and `unfetch` methods to `Vfs` for memory-mapped I/O support (xFetch/xUnfetch), bumping the VFS to iVersion 3 (thanks @russellromney)
