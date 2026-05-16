@@ -553,7 +553,14 @@ unsafe extern "C" fn x_read<T: Vfs>(
         let buf_len: usize = i_amt.try_into().map_err(|_| vars::SQLITE_IOERR_READ)?;
         let offset: usize = i_ofst.try_into().map_err(|_| vars::SQLITE_IOERR_READ)?;
         let buf = unsafe { slice::from_raw_parts_mut(buf.cast::<u8>(), buf_len) };
-        vfs.read(&mut file.handle, offset, buf)?;
+        let bytes_read = vfs.read(&mut file.handle, offset, buf)?;
+        if bytes_read < buf_len {
+            // From https://sqlite.org/c3ref/io_methods.html:
+            // "If xRead() returns SQLITE_IOERR_SHORT_READ it must also fill in the unread portions
+            // of the buffer with zeros."
+            buf[bytes_read..].fill(0);
+            return Err(vars::SQLITE_IOERR_SHORT_READ);
+        }
         Ok(vars::SQLITE_OK)
     })
 }
