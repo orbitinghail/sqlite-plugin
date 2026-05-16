@@ -421,6 +421,13 @@ unsafe extern "C" fn x_open<T: Vfs>(
     flags: c_int,
     p_out_flags: *mut c_int,
 ) -> c_int {
+    // From https://sqlite.org/c3ref/vfs.html:
+    // "Note that the xOpen method must set the sqlite3_file.pMethods to either a valid
+    // sqlite3_io_methods object or to NULL. xOpen must do this even if the open fails."
+    if let Some(f) = unsafe { p_file.as_mut() } {
+        f.pMethods = core::ptr::null();
+    }
+
     fallible(|| {
         let opts = flags.into();
         let name = unsafe { lossy_cstr(z_name) }.ok();
