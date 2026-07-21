@@ -2,6 +2,10 @@
 
 All notable changes will be documented in this file.
 
+## 0.11.0 - 2026-07-20
+
+- Reduced the minimum supported SQLite version to 3.37.2, which ships on Ubuntu 22.04 and keeps ABI compatibility with older glibc (thanks @bkoropoff)
+
 ## 0.10.1 - 2026-05-15
 
 - Fixed `x_open` leaving `sqlite3_file.pMethods` uninitialized when the underlying `Vfs::open` returns an error. `pMethods` is now set to NULL up front so SQLite can correctly skip `xClose` on failure (thanks @m-vze)
